@@ -1,0 +1,30 @@
+# Виртуальное окружение
+venv/
+ENV/
+env/
+
+# Кэш Python
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Кэш и веса нейросетей (Hugging Face / PyTorch)
+.cache/
+**/models/
+**/.whl/
+downloads/
+*.pt
+*.pth
+*.bin
+
+# Локальное хранилище сгенерированных аудиофайлов и референсов
+app/storage/
+*.wav
+*.mp3
+
+# Настройки VS Code и ОС
+.vscode/
+.DS_Store
+Thumbs.db

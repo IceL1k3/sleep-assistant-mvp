@@ -1,12 +1,21 @@
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.api.v1.router import api_router
+
+
 
 app = FastAPI(
     title="Biofeedback Sleep Assistant API",
     description="Backend-система адаптивной генерации аудиопотока на основе ИИ и биосигналов",
     version="1.0.0"
 )
+
+
+
+# Добавьте эту строчку сразу после app.add_middleware(...)
+app.include_router(api_router, prefix="/api/v1")
+
 
 # Настройка CORS, чтобы в будущем фронтенд или мобилка могли слать запросы без блокировок
 app.add_middleware(
