@@ -1,5 +1,6 @@
 import os
 import torch
+import soundfile as sf
 from audiocraft.models.musicgen import MusicGen
 
 class AdaptiveMusicGenerator:
@@ -40,9 +41,10 @@ class AdaptiveMusicGenerator:
         output_path = "app/storage/output_chunk_0.wav"
         
         # Сохраняем аудио на диск через torchaudio (MusicGen выдает sample rate 32000 Гц)
-        import torchaudio
-        torchaudio.save(output_path, wav[0].cpu(), sample_rate=32000)
         
+        audio_data = wav[0].squeeze(0).cpu().numpy().T.astype('float32')  # Транспонируем для формата soundfile
+        sf.write(output_path, audio_data, 32000, format="WAV")
+
         print(f"[Generator Service] Стартовый файл сохранен: {output_path}")
         return output_path
         
@@ -50,16 +52,31 @@ class AdaptiveMusicGenerator:
         """Генерирует следующий отрезок музыки на основе аудиоконтекста (хвоста последние 3 сек)."""
         print(f"[Generator Service] Continuation: продолжение потока на основе: {previous_chunk_path}")
         
-        import torchaudio
-        # 1. Загружаем предыдущий чанк
-        prompt_wav, sr = torchaudio.load(previous_chunk_path)
+        # 1. Безопасное чтение файла через soundfile
+        import soundfile as sf
+        prompt_data, sr = sf.read(previous_chunk_path)
         
-        # 2. Вырезаем последние `overlap` секунд (хвост) для контекста
-        # sr * overlap — количество фреймов звука
+        # 2. Превращаем массив данных в тензор PyTorch
+        prompt_wav = torch.tensor(prompt_data).float()
+        
+        # 3. Принудительно приводим к 2D виду [channels, frames]:
+        # Если soundfile прочитал моно [frames], превращаем в [1, frames].
+        # Если стерео [frames, channels], транспонируем в [channels, frames].
+        if prompt_wav.ndim == 1:
+            prompt_wav = prompt_wav.unsqueeze(0)
+        else:
+            prompt_wav = prompt_wav.T
+            
+        # 4. Вырезаем последние `overlap` секунд (хвост) для контекста
         overlap_frames = int(sr * overlap)
         prompt_sequence = prompt_wav[:, -overlap_frames:]
         
-        # 3. Выставляем параметры для продолжения
+        # 🌟 ЖЕЛЕЗОБЕТОННЫЙ ФИКС ДЛЯ ИИ [B, C, T]:
+        # Добавляем фейковое измерение батча на нулевую позицию. 
+        # Тензор из [channels, frames] гарантированно превращается в 3D [1, channels, frames]!
+        prompt_sequence_3d = prompt_sequence.unsqueeze(0)
+        
+        # 5. Выставляем параметры для генерации продолжения
         self.model.set_generation_params(
             duration=duration,
             top_k=250,
@@ -67,17 +84,21 @@ class AdaptiveMusicGenerator:
             cfg_coef=3.0
         )
         
-        # 4. Запускаем встроенный метод генерации продолжения
+        # 6. Запускаем генерацию продолжения, передавая правильный 3D-тензор
         with torch.inference_mode():
             with torch.autocast(device_type=self.device, dtype=torch.float16):
-                # Передаем аудио-хвост и текстовый промпт
                 wav = self.model.generate_continuation(
-                    prompt_sequence.to(self.device), 
+                    prompt_sequence_3d.to(self.device), 
                     prompt_sample_rate=sr, 
                     descriptions=[prompt]
                 )
                 
         next_chunk_path = "app/storage/output_chunk_next.wav"
-        torchaudio.save(next_chunk_path, wav[0].cpu(), sample_rate=32000)
+        
+        # 7. Чистое сохранение в float32:
+        # wav[0] или wav.squeeze(0) убирает батч -> остается 2D [channels, frames].
+        # Переводим в NumPy, транспонируем .T в [frames, channels] для soundfile
+        audio_data_next = wav[0].cpu().numpy().T.astype('float32')
+        sf.write(next_chunk_path, audio_data_next, 32000, format="WAV")
         
         return next_chunk_path
