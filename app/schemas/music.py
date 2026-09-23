@@ -4,7 +4,7 @@ from typing import Optional
 class MusicGenerationRequest(BaseModel):
     """Схема входящего запроса на генерацию музыки."""
     prompt: str = Field(..., description="Текстовые теги или описание атмосферы для генератора")
-    duration: int = Field(10, description="Длительность генерируемого отрезка в секундах")
+    duration: int = Field(15, description="Длительность генерируемого отрезка в секундах")
     previous_chunk_path: Optional[str] = Field(None, description="Путь к предыдущему чанку для продолжения потока")
 
 class MusicGenerationResponse(BaseModel):

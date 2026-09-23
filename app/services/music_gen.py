@@ -19,8 +19,8 @@ class AdaptiveMusicGenerator:
             # Переводим веса тензоров в половинную точность
             self.model.lm.half() 
             
-    def generate_first_chunk(self, prompt: str, duration: int = 10, output_path: str = "app/storage/output_chunk_0.wav") -> str:
-        f"""Генерирует первые {duration} секунд музыки по текстовым тегам."""
+    def generate_first_chunk(self, prompt: str, duration: int = 15) -> str:
+        """Генерирует первые 15 секунд музыки по текстовым тегам."""
         print(f"[Generator Service] Синтез стартового отрезка по промпту: {prompt}")
         
         # Выставляем параметры генерации для нашей видеокарты
@@ -28,7 +28,7 @@ class AdaptiveMusicGenerator:
             duration=duration,
             top_k=250,          # Ограничение выборки токенов для стабильности мелодии
             temperature=1.0,    # Контроль хаотичности звука
-            cfg_coef=3.0       # Насколько строго следовать текстовому промпту
+            cfg_coef=3.0        # Насколько строго следовать текстовому промпту
         )
         
         # Генерируем аудио (на выходе трехмерный тензор)
@@ -38,7 +38,7 @@ class AdaptiveMusicGenerator:
                 
         # Путь для сохранения (убедитесь, что папка app/storage будет создана)
         os.makedirs("app/storage", exist_ok=True)
-        #output_path = "app/storage/output_chunk_0.wav"
+        output_path = "app/storage/output_chunk_0.wav"
         
         # Сохраняем аудио на диск через torchaudio (MusicGen выдает sample rate 32000 Гц)
         
@@ -48,8 +48,7 @@ class AdaptiveMusicGenerator:
         print(f"[Generator Service] Стартовый файл сохранен: {output_path}")
         return output_path
         
-# Добавьте параметр output_path в самый конец аргументов:
-    def generate_next_chunk(self, prompt: str, previous_chunk_path: str, duration: int = 10, overlap: int = 3, output_path: str = "app/storage/output_chunk_next.wav") -> str:
+    def generate_next_chunk(self, prompt: str, previous_chunk_path: str, duration: int = 15, overlap: int = 3) -> str:
         """Генерирует следующий отрезок музыки на основе аудиоконтекста (хвоста последние 3 сек)."""
         print(f"[Generator Service] Continuation: продолжение потока на основе: {previous_chunk_path}")
         
@@ -94,11 +93,12 @@ class AdaptiveMusicGenerator:
                     descriptions=[prompt]
                 )
                 
+        next_chunk_path = "app/storage/output_chunk_next.wav"
         
         # 7. Чистое сохранение в float32:
         # wav[0] или wav.squeeze(0) убирает батч -> остается 2D [channels, frames].
         # Переводим в NumPy, транспонируем .T в [frames, channels] для soundfile
         audio_data_next = wav[0].cpu().numpy().T.astype('float32')
-        sf.write(output_path, audio_data_next, 32000, format="WAV")
+        sf.write(next_chunk_path, audio_data_next, 32000, format="WAV")
         
-        return output_path
+        return next_chunk_path

@@ -50,88 +50,117 @@
     </div>
 
     <script>
-    const urlParams = new URLSearchParams(window.location.search);
-    const promptText = urlParams.get('prompt') || "ambient, dark noir guitar, slow tempo, 60 bpm, relaxation, no drums";
-    document.getElementById('promptLabel').innerText = `"${promptText}"`;
-
-    let audioCtx = null;
-    let isPlaying = false;
-
-    async function startRadio() {
-        if (isPlaying) return;
-        isPlaying = true;
+        let currentPreviousPath = null;
         
-        document.getElementById('playBtn').disabled = true;
-        updateStatus("Подключение к бесконечному аудиопотоку сервера...");
+        const urlParams = new URLSearchParams(window.location.search);
+        const promptText = urlParams.get('prompt') || "dark ambient, slow space drone, melancholic electric guitar riffs, deep bass, 60 bpm, relaxation, no drums";
+        document.getElementById('promptLabel').innerText = `"${promptText}"`;
 
-        // Инициализируем аудио-контекст браузера
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 32000 });
-        
-        if (audioCtx.state === 'suspended') {
-            await audioCtx.resume();
-        }
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let nextStartTime = 0;
+        let isFetching = false;
 
-        try {
-            // Открываем ОДИН единственный бесконечный запрос к нашей новой ручке сервера
-            const response = await fetch(`/api/v1/music/stream?prompt=${encodeURIComponent(promptText)}`);
-            const reader = response.body.getReader();
+        async function startRadio() {
+            document.getElementById('playBtn').disabled = true;
             
-            updateStatus("🔊 Слушаем живое ИИ-радио. Стыки побеждены!");
-            
-            // Запускаем асинхронное чтение бесконечного потока байт
-            readStream(reader);
-            
-        } catch (error) {
-            console.error(error);
-            updateStatus("❌ Ошибка подключения к серверу.");
-            document.getElementById('playBtn').disabled = false;
-            isPlaying = false;
-        }
-    }
-
-    // Маркер времени для планирования воспроизведения кусочков внутри единого потока
-    let scheduledTime = 0;
-
-    async function readStream(reader) {
-        // Каждые 4 байта в потоке float32 — это одна звуковая точка (сэмпл)
-        const bytesPerSample = 4; 
-        
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-                updateStatus("Поток завершен сервером.");
-                break;
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
             }
-
-            // Превращаем прилетевшие сырые байты (Uint8Array) в массив чисел float32
-            const float32Array = new Float32Array(value.buffer, value.byteOffset, value.byteLength / bytesPerSample);
             
-            if (float32Array.length === 0) continue;
+            updateStatus("⏳ Создание стартового буфера...");
+            
+            try {
+                // 1. Предзагружаем Чанк 0
+                const chunk0Buffer = await fetchAndDecodeChunk();
+                
+                // Задаем стартовое время воспроизведения звуковой карты
+                nextStartTime = audioCtx.currentTime + 0.1;
+                
+                // 2. Ставим Чанк 0 в очередь
+                schedulePlayback(chunk0Buffer);
+                
+                updateStatus("🔊 Радио запущено! Идет фоновый расчет...");
+                
+                // 3. Сразу запускаем регулярный цикл генерации следующих чанков
+                playNextLoop();
+                
+            } catch (error) {
+                console.error(error);
+                updateStatus("❌ Ошибка инициализации ИИ.");
+                document.getElementById('playBtn').disabled = false;
+            }
+        }
 
-            // Создаем маленький аудио-буфер для прилетевшей порции звука
-            const audioBuffer = audioCtx.createBuffer(1, float32Array.length, 32000);
-            audioBuffer.getChannelData(0).set(float32Array);
+        async function fetchAndDecodeChunk() {
+            isFetching = true;
+            
+            const response = await fetch('/api/v1/music/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: promptText,
+                    duration: 15, // Эталонные 15 секунд
+                    previous_chunk_path: currentPreviousPath
+                })
+            });
+            
+            const data = await response.json();
+            currentPreviousPath = data.chunk_path;
+            
+            // Скачиваем чистый WAV из статики бэкенда
+            const fileResponse = await fetch('/static/' + currentPreviousPath.split('/').pop());
+            const arrayBuffer = await fileResponse.arrayBuffer();
+            
+            isFetching = false;
+            return await audioCtx.decodeAudioData(arrayBuffer);
+        }
 
-            // Создаем узел воспроизведения
+        function schedulePlayback(audioBuffer) {
             const source = audioCtx.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(audioCtx.destination);
-
-            // Синхронизируем время старта порции внутри единой шкалы времени
-            if (scheduledTime < audioCtx.currentTime) {
-                scheduledTime = audioCtx.currentTime + 0.05;
+            
+            const duration = audioBuffer.duration;
+            const playDuration = duration - 3; // 12 секунд чистой музыки (срезаем оверлап)
+            
+            if (nextStartTime < audioCtx.currentTime) {
+                nextStartTime = audioCtx.currentTime + 0.05;
             }
-
-            source.start(scheduledTime);
-            // Сдвигаем маркер времени на длительность прилетевшего кусочка звука
-            scheduledTime += audioBuffer.duration;
+            
+            source.start(nextStartTime);
+            nextStartTime += playDuration;
         }
-    }
 
-    function updateStatus(text) {
-        document.getElementById('status').innerText = "Статус: " + text;
-    }
-</script>
+        async function playNextLoop() {
+            if (isFetching) {
+                setTimeout(playNextLoop, 1000);
+                return;
+            }
+            
+            try {
+                // Сколько секунд музыки у нас расписано вперед в звуковой карте
+                const currentBufferAhead = nextStartTime - audioCtx.currentTime;
+                
+                // Агрессивный Look-ahead: стремимся, чтобы в запасе ВСЕГДА лежало минимум 25 секунд звука.
+                // Как только запас падает, мгновенно отправляем фоновый запрос к видеокарте.
+                if (currentBufferAhead < 25) {
+                    const nextAudioBuffer = await fetchAndDecodeChunk();
+                    schedulePlayback(nextAudioBuffer);
+                    updateStatus("🔊 Поток активен. Звук бесшовный.");
+                }
+                
+                setTimeout(playNextLoop, 1000);
+                
+            } catch (error) {
+                console.error(error);
+                updateStatus("❌ Ошибка в конвейере. Повтор...");
+                setTimeout(playNextLoop, 3000);
+            }
+        }
 
+        function updateStatus(text) {
+            document.getElementById('status').innerText = "Статус: " + text;
+        }
+    </script>
 </body>
 </html>
