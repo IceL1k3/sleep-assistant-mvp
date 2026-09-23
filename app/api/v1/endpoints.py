@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.schemas.music import MusicGenerationRequest, MusicGenerationResponse
 from app.services.music_gen import AdaptiveMusicGenerator
-from app.services.music_stream import StreamBuffer
-
+from app.services.music_stream import StreamBuffer 
+import os
 import asyncio
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from typing import AsyncGenerator
 
 
@@ -99,13 +99,117 @@ async def audio_stream_generator(prompt: str) -> AsyncGenerator[bytes, None]:
         chunk_index = next_index
 
         
-@router.get("/stream", tags=["Audio Streaming"])
-async def stream_audio(prompt: str = "ambient, dark noir guitar, slow tempo, 60 bpm, relaxation"):
+
+
+async def pure_server_audio_generator(prompt: str) -> AsyncGenerator[bytes, None]:
     """
-    Эндпоинт бесконечного стриминга. 
-    Откройте эту ссылку в браузере, и начнется непрерывное воспроизведение музыки для сна.
+    Бесконечный серверный конвейер.
+    Управляет файлами через трехэлементный buffer = StreamBuffer().
+    Срезает технические WAV-заголовки и транслирует чистый Raw PCM аудиопоток.
+    """
+    chunk_index = 0
+    overlap_seconds = 3
+    sample_rate = 32000
+    bytes_per_sample = 4  # float32 занимает 4 байта
+    channels = 1  # моно поток
+    
+    # Расчет байт для обрезки 3-секундного нахлёста (overlap)
+    overlap_frames = sample_rate * overlap_seconds
+    overlap_bytes = overlap_frames * bytes_per_sample * channels
+    
+    print("[Server Stream] Запуск 3-фазного конвейера через StreamBuffer...")
+    
+    # === ШАГ 1: ПЕРВОНАЧАЛЬНОЕ НАПОЛНЕНИЕ БУФЕРА (Готовим А и B) ===
+    # Генерируем Чанк А (current)
+    buffer.current_chunk = f"app/storage/live_chunk_{chunk_index}.wav"
+    music_generator.generate_first_chunk(prompt=prompt, duration=10, output_path=buffer.current_chunk)
+    
+    # Генерируем Чанк B (next) на основе хвоста А
+    chunk_index += 1
+    buffer.next_chunk = f"app/storage/live_chunk_{chunk_index}.wav"
+    music_generator.generate_next_chunk(
+        prompt=prompt,
+        previous_chunk_path=buffer.current_chunk,
+        duration=10,
+        output_path=buffer.next_chunk
+    )
+    
+    # === ШАГ 2: СТАРТ ТРАНСЛЯЦИИ ЧАНКА А ===
+    if os.path.exists(buffer.current_chunk):
+        with open(buffer.current_chunk, "rb") as f:
+            f.seek(44)  # Отрезаем WAV-заголовок
+            yield f.read()
+            
+    # Ждем, пока первый кусок отыграет в эфире (10с длительность - 3с нахлёст = 7 секунд)
+    await asyncio.sleep(7.0)
+    
+    while True:
+        # === ШАГ 3: ФОНОВАЯ ГЕНЕРАЦИЯ ЧАНКА С (generating_chunk) ===
+        # Пока впереди нас ждет уже готовый Чанк B, ИИ спокойно пишет Чанк C на основе хвоста B
+        chunk_index += 1
+        buffer.generating_chunk = f"app/storage/live_chunk_{chunk_index}.wav"
+        
+        print(f"[Server Stream] Видеокарта пишет Чанк C (индекс {chunk_index}) на основе Чанка B...")
+        music_generator.generate_next_chunk(
+            prompt=prompt,
+            previous_chunk_path=buffer.next_chunk,
+            duration=10,
+            output_path=buffer.generating_chunk
+        )
+        
+        # === ШАГ 4: ТРАНСЛЯЦИЯ ГОТОВОГО ЧАНКА B ===
+        print(f"[Server Stream] Отдача Чанка B ({buffer.next_chunk}) в поток...")
+        if os.path.exists(buffer.next_chunk):
+            with open(buffer.next_chunk, "rb") as f:
+                # Отрезаем заголовок (44 байта) и 3 секунды дублирующегося оверлапа
+                f.seek(44 + overlap_bytes) 
+                yield f.read()
+                
+        # === ШАГ 5: УТИЛИЗАЦИЯ И СДВИГ СТЕКА ===
+        # Старый отыгравший Чанк А (current) больше не нужен — удаляем его с диска
+        try:
+            if os.path.exists(buffer.current_chunk):
+                os.remove(buffer.current_chunk)
+        except Exception as e:
+            print(f"[Server Stream Warning] Не удалось удалить старый файл: {e}")
+            
+        # Сдвигаем кольцевое окно:
+        # Старый B становится текущим А
+        buffer.current_chunk = buffer.next_chunk
+        # Свежесгенерированный ИИ Чанк C становится следующим на очереди B
+        buffer.next_chunk = buffer.generating_chunk
+        # Слот C освобождается для следующего витка цикла
+        buffer.generating_chunk = ''
+        
+        # Даем отыграть сгенерированному куску 7 секунд
+        await asyncio.sleep(7.0)
+
+
+
+
+@router.get("/stream", tags=["Audio Streaming"])
+async def live_audio_stream(prompt: str = "ambient, dark noir guitar, slow tempo, 60 bpm, relaxation, no drums"):
+    """
+    Низкоуровневый эндпоинт бесконечной трансляции сырых байт звука (Raw PCM float32, 32000Hz).
     """
     return StreamingResponse(
-        audio_stream_generator(prompt), 
-        media_type="audio/wav"
+        pure_server_audio_generator(prompt),
+        media_type="audio/x-raw"
     )
+
+
+@router.get("/radio", response_class=HTMLResponse, tags=["Audio Streaming"])
+async def get_radio_interface():
+    """
+    Отдает чистый HTML-интерфейс радио-плеера из папки frontend/.
+    """
+    # Путь к файлу относительно корня проекта, откуда запускается uvicorn
+    html_file_path = "frontend/radio.html"
+    
+    if not os.path.exists(html_file_path):
+        raise HTTPException(status_code=404, detail="Файл интерфейса radio.html не найден")
+        
+    with open(html_file_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+        
+    return HTMLResponse(content=html_content, status_code=200)

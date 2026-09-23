@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Sleep Radio</title>
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .player-card {
+            background: #161b22;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            text-align: center;
+            border: 1px solid #30363d;
+        }
+        button {
+            background-color: #238636;
+            color: white;
+            border: none;
+            padding: 15px 32px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+        button:hover { background-color: #2ea043; }
+        button:disabled { background-color: #21262d; color: #8b949e; cursor: not-allowed; }
+        #status { margin-top: 20px; color: #8b949e; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="player-card">
+        <h2>🎵 AI Sleep Assistant Radio</h2>
+        <p style="font-size: 14px; color: #8b949e; max-width: 300px;">
+            Промпт: <i id="promptLabel">Загрузка...</i>
+        </p>
+        <br>
+        <button id="playBtn" onclick="startRadio()">Включить бесконечный поток</button>
+        <div id="status">Статус: Готов к запуску</div>
+    </div>
+
+    <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const promptText = urlParams.get('prompt') || "ambient, dark noir guitar, slow tempo, 60 bpm, relaxation, no drums";
+    document.getElementById('promptLabel').innerText = `"${promptText}"`;
+
+    let audioCtx = null;
+    let isPlaying = false;
+
+    async function startRadio() {
+        if (isPlaying) return;
+        isPlaying = true;
+        
+        document.getElementById('playBtn').disabled = true;
+        updateStatus("Подключение к бесконечному аудиопотоку сервера...");
+
+        // Инициализируем аудио-контекст браузера
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 32000 });
+        
+        if (audioCtx.state === 'suspended') {
+            await audioCtx.resume();
+        }
+
+        try {
+            // Открываем ОДИН единственный бесконечный запрос к нашей новой ручке сервера
+            const response = await fetch(`/api/v1/music/stream?prompt=${encodeURIComponent(promptText)}`);
+            const reader = response.body.getReader();
+            
+            updateStatus("🔊 Слушаем живое ИИ-радио. Стыки побеждены!");
+            
+            // Запускаем асинхронное чтение бесконечного потока байт
+            readStream(reader);
+            
+        } catch (error) {
+            console.error(error);
+            updateStatus("❌ Ошибка подключения к серверу.");
+            document.getElementById('playBtn').disabled = false;
+            isPlaying = false;
+        }
+    }
+
+    // Маркер времени для планирования воспроизведения кусочков внутри единого потока
+    let scheduledTime = 0;
+
+    async function readStream(reader) {
+        // Каждые 4 байта в потоке float32 — это одна звуковая точка (сэмпл)
+        const bytesPerSample = 4; 
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                updateStatus("Поток завершен сервером.");
+                break;
+            }
+
+            // Превращаем прилетевшие сырые байты (Uint8Array) в массив чисел float32
+            const float32Array = new Float32Array(value.buffer, value.byteOffset, value.byteLength / bytesPerSample);
+            
+            if (float32Array.length === 0) continue;
+
+            // Создаем маленький аудио-буфер для прилетевшей порции звука
+            const audioBuffer = audioCtx.createBuffer(1, float32Array.length, 32000);
+            audioBuffer.getChannelData(0).set(float32Array);
+
+            // Создаем узел воспроизведения
+            const source = audioCtx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioCtx.destination);
+
+            // Синхронизируем время старта порции внутри единой шкалы времени
+            if (scheduledTime < audioCtx.currentTime) {
+                scheduledTime = audioCtx.currentTime + 0.05;
+            }
+
+            source.start(scheduledTime);
+            // Сдвигаем маркер времени на длительность прилетевшего кусочка звука
+            scheduledTime += audioBuffer.duration;
+        }
+    }
+
+    function updateStatus(text) {
+        document.getElementById('status').innerText = "Статус: " + text;
+    }
+</script>
+
+</body>
+</html>

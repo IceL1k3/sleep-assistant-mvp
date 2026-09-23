@@ -2,6 +2,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
+from fastapi.staticfiles import StaticFiles
+import os
 
 
 
@@ -11,6 +13,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Создаем папку хранилища, если её нет
+os.makedirs("app/storage", exist_ok=True)
+# Открываем папку app/storage по адресу /static
+app.mount("/static", StaticFiles(directory="app/storage"), name="static")
 
 
 # Добавьте эту строчку сразу после app.add_middleware(...)
