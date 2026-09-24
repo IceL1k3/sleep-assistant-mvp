@@ -52,12 +52,12 @@ class AdaptiveMusicGenerator:
                 
         # Путь для сохранения (убедитесь, что папка app/storage будет создана)
         os.makedirs("app/storage", exist_ok=True)
-        output_path = "app/storage/output_chunk_0.wav"
+        output_path = "app/storage/output_chunk_0.mp3"
         
         # Сохраняем аудио на диск через torchaudio (MusicGen выдает sample rate 32000 Гц)
         
         audio_data = wav[0].squeeze(0).cpu().numpy().T.astype('float32')  # Транспонируем для формата soundfile
-        sf.write(output_path, audio_data, 32000, format="WAV")
+        sf.write(output_path, audio_data, 32000, format="MP3")
 
         print(f"[Generator Service] Стартовый файл сохранен: {output_path}")
         return output_path
@@ -107,12 +107,12 @@ class AdaptiveMusicGenerator:
                     descriptions=[prompt]
                 )
                 
-        next_chunk_path = "app/storage/output_chunk_next.wav"
+        next_chunk_path = "app/storage/output_chunk_next.mp3"
         
         # 7. Чистое сохранение в float32:
         # wav[0] или wav.squeeze(0) убирает батч -> остается 2D [channels, frames].
         # Переводим в NumPy, транспонируем .T в [frames, channels] для soundfile
         audio_data_next = wav[0].cpu().numpy().T.astype('float32')
-        sf.write(next_chunk_path, audio_data_next, 32000, format="WAV")
+        sf.write(next_chunk_path, audio_data_next, 32000, format="MP3")
         
         return next_chunk_path

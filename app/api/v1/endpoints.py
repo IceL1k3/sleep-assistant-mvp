@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException, Depends
-from app.schemas.music import MusicGenerationRequest, MusicGenerationResponse
+from fastapi import APIRouter, HTTPException, Depends,  UploadFile, File
+from app.schemas.music import MusicGenerationRequest, MusicGenerationResponse, AudioAnalysisResponse
 from app.services.music_gen import AdaptiveMusicGenerator
 from app.services.music_stream import StreamBuffer 
+from app.services.audio_analyzer import AudioAnalyzer 
+
 import os
 import asyncio
 from fastapi.responses import StreamingResponse, HTMLResponse
@@ -14,6 +16,7 @@ router = APIRouter()
 # Благодаря синглтону веса модели загрузятся в VRAM вашей RTX 3050 один раз, а не при каждом запросе.
 music_generator = AdaptiveMusicGenerator()
 buffer = StreamBuffer()
+audio_analyzer = AudioAnalyzer()
 
 
 @router.post("/generate", response_model=MusicGenerationResponse, tags=["Audio Generation"])
@@ -46,6 +49,66 @@ async def generate_audio_chunk(request: MusicGenerationRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка генерации ИИ: {str(e)}")
+
+
+@router.get("/radio", response_class=HTMLResponse, tags=["Audio Streaming"])
+async def get_radio_interface():
+    """
+    Отдает чистый HTML-интерфейс радио-плеера из папки frontend/.
+    """
+    # Путь к файлу относительно корня проекта, откуда запускается uvicorn
+    html_file_path = "frontend/radio.html"
+    
+    if not os.path.exists(html_file_path):
+        raise HTTPException(status_code=404, detail="Файл интерфейса radio.html не найден")
+        
+    with open(html_file_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+        
+    return HTMLResponse(content=html_content, status_code=200)
+
+
+@router.post("/analyze", response_model=AudioAnalysisResponse, tags=["Audio Analysis"])
+async def analyze_track(file: UploadFile = File(...)):
+    """
+    Принимает аудиофайл (.mp3, .wav), сохраняет во временное хранилище 
+    и проводит полный DSP-анализ музыкальных фич.
+    """
+    try:
+        # Создаем временную папку для загрузок, если её нет
+        upload_dir = "app/storage/uploads"
+        os.makedirs(upload_dir, exist_ok=True)
+
+        if not file or not file.filename:
+        # Возвращаем клиенту ошибку 400 Bad Request
+            raise HTTPException(status_code=400, detail="Файл не был загружен или имя файла пустое")
+        
+        file_path = os.path.join(upload_dir, file.filename)
+
+        # Сохраняем прилетевшие байты файла на диск
+        with open(file_path, "wb") as buffer_file:
+            content = await file.read()
+            buffer_file.write(content)
+
+        # Запускаем наш DSP-анализатор
+        analysis = await audio_analyzer.analyze_reference_track(file_path)
+
+        # Опционально: можно сразу удалить файл после анализа, чтобы не копить мусор
+        # os.remove(file_path)
+
+        return AudioAnalysisResponse(
+            status="success",
+            filename=file.filename,
+            bpm=analysis["bpm"],
+            spectral_centroid=analysis["spectral_centroid"],
+            estimated_mood=analysis["estimated_mood"],
+            chroma_features=analysis["chroma_features"]
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка анализа файла: {str(e)}")
+
+
 
 
 # async def audio_stream_generator(prompt: str) -> AsyncGenerator[bytes, None]:
@@ -198,18 +261,4 @@ async def generate_audio_chunk(request: MusicGenerationRequest):
 #     )
 
 
-@router.get("/radio", response_class=HTMLResponse, tags=["Audio Streaming"])
-async def get_radio_interface():
-    """
-    Отдает чистый HTML-интерфейс радио-плеера из папки frontend/.
-    """
-    # Путь к файлу относительно корня проекта, откуда запускается uvicorn
-    html_file_path = "frontend/radio.html"
-    
-    if not os.path.exists(html_file_path):
-        raise HTTPException(status_code=404, detail="Файл интерфейса radio.html не найден")
-        
-    with open(html_file_path, "r", encoding="utf-8") as f:
-        html_content = f.read()
-        
-    return HTMLResponse(content=html_content, status_code=200)
+
