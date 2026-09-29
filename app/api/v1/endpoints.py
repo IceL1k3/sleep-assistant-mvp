@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends,  UploadFile, File
-from app.schemas.music import MusicGenerationRequest, MusicGenerationResponse, AudioAnalysisResponse
+from app.schemas.music import MusicGenerationRequest, MusicGenerationResponse, AudioAnalysisResponse,OrchestratorRequest
 from app.services.music_gen import AdaptiveMusicGenerator
 from app.services.music_stream import StreamBuffer 
 from app.services.audio_analyzer import AudioAnalyzer 
-
+from app.services.llm_orchestrator import LLMOrchestrator
 import os
 import asyncio
 from fastapi.responses import StreamingResponse, HTMLResponse
@@ -17,7 +17,7 @@ router = APIRouter()
 music_generator = AdaptiveMusicGenerator()
 buffer = StreamBuffer()
 audio_analyzer = AudioAnalyzer()
-
+llm_orchestrator = LLMOrchestrator()
 
 import numpy as np
 import soundfile as sf
@@ -131,6 +131,51 @@ async def analyze_track(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка анализа файла: {str(e)}")
 
+
+@router.post("/orchestrate", tags=["Audio Generation"])
+async def orchestrate_sleep_session(request: OrchestratorRequest):
+    """
+    Главный роут-дирижер. Принимает ввод пользователя и фичи референса,
+    запускает Qwen для генерации тегов, передает их в MusicGen и запускает аудио.
+    """
+    try:
+        # 1. Собираем фичи из запроса (которые туда заботливо сохранил фронтенд после Librosa)
+        audio_features = None
+        if request.bpm and request.estimated_mood:
+            audio_features = {
+                "bpm": request.bpm,
+                "estimated_mood": request.estimated_mood
+            }
+
+        # 2. Вызываем локальную Qwen-2.5 через Ollama для генерации идеальных тегов
+        llm_result = llm_orchestrator.generate_music_tags(
+            user_complaint=request.user_complaint,
+            audio_features=audio_features
+        )
+
+        ai_prompt = llm_result.get("musicgen_prompt", "dark ambient, slow tempo, relaxation")
+        reasoning = llm_result.get("reasoning", "Базовые настройки сна.")
+
+        print(f"[Orchestrator Route] Qwen создала промпт: {ai_prompt}")
+        print(f"[Orchestrator Route] Обоснование ИИ: {reasoning}")
+
+        # 3. Передаем сгенерированные текстовой моделью теги в наш качественный 45-сек аудио-генератор!
+
+        path = music_generator.generate_first_chunk(
+            prompt=ai_prompt, 
+            duration=45,
+        )
+
+        # Возвращаем фронтенду и путь к треку, и теги с обоснованием, чтобы вывести их на экран!
+        return {
+            "status": "success",
+            "chunk_path": path,
+            "musicgen_prompt": ai_prompt,
+            "reasoning": reasoning
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка оркестрации: {str(e)}")
 
 
 

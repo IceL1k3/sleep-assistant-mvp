@@ -4,53 +4,61 @@
     <title>AI Sleep Laboratory</title>
     <style>
         body { background-color: #0d1117; color: #c9d1d9; font-family: 'Segoe UI', Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .player-card { background: #161b22; padding: 40px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); text-align: center; border: 1px solid #30363d; width: 350px; }
-        button { background-color: #238636; color: white; border: none; padding: 15px 32px; font-size: 16px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s; }
+        .player-card { background: #161b22; padding: 40px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); text-align: center; border: 1px solid #30363d; width: 380px; }
+        button { background-color: #238636; color: white; border: none; padding: 12px 24px; font-size: 15px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s; margin-bottom: 10px; }
         button:hover { background-color: #2ea043; }
         button:disabled { background-color: #21262d; color: #8b949e; cursor: not-allowed; }
-        .control-group { margin: 25px 0; text-align: left; }
-        label { display: block; font-size: 14px; margin-bottom: 8px; color: #8b949e; font-weight: 500; }
+        .btn-secondary { background-color: #21262d; border: 1px solid #30363d; color: #c9d1d9; }
+        .btn-secondary:hover { background-color: #30363d; }
+        .control-group { margin: 20px 0; text-align: left; }
+        label { display: block; font-size: 13px; margin-bottom: 6px; color: #8b949e; font-weight: 500; }
+        textarea { width: 100%; background: #0d1117; border: 1px solid #30363d; color: white; border-radius: 6px; padding: 10px; box-sizing: border-box; resize: none; font-family: inherit; font-size: 14px; }
         .slider { width: 100%; -webkit-appearance: none; background: #30363d; height: 6px; border-radius: 3px; outline: none; }
         .slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #58a6ff; cursor: pointer; }
         select { width: 100%; background: #21262d; border: 1px solid #30363d; color: white; padding: 8px; border-radius: 6px; outline: none; }
-        #status { margin-top: 20px; color: #58a6ff; font-size: 13px; font-family: monospace; }
+        #status { margin-top: 15px; color: #58a6ff; font-size: 13px; font-family: monospace; min-height: 20px; }
+        .tags-box { background: #0d1117; border: 1px solid #21262d; padding: 8px; border-radius: 6px; font-size: 12px; color: #8b949e; margin-top: 5px; font-style: italic; text-align: left; }
     </style>
 </head>
 <body>
     <div class="player-card">
-        <h2 style="margin-top:0;">🌌 AI Sleep Lab MVP</h2>
-        <p style="font-size: 13px; color: #8b949e; margin-bottom: 25px;" id="promptLabel">Загрузка...</p>
+        <h2 style="margin-top:0; margin-bottom: 5px;">🌌 AI Sleep Laboratory</h2>
+        <p style="font-size: 13px; color: #8b949e; margin-bottom: 20px;">Интеллектуальный оркестратор Qwen-2.5 + MusicGen</p>
         
         <div class="control-group">
-            <label for="noiseType">Тип терапевтического шума:</label>
+            <label for="userThoughts">Что мешает вам уснуть? (Текстовый ввод для Qwen):</label>
+            <textarea id="userThoughts" rows="2" placeholder="Например: Сильный стресс на работе, в голове крутятся тревожные мысли..."></textarea>
+        </div>
+
+        <div class="control-group">
+            <label>Аудио-референс (Librosa Анализатор):</label>
+            <input type="file" id="audioFile" accept="audio/*" style="display: none;" onchange="uploadAndAnalyzeFile()">
+            <button class="btn-secondary" onclick="document.getElementById('audioFile').click()" id="uploadBtn">📁 Загрузить трек Рефференс</button>
+            <div id="analysisInfo" style="font-size: 12px; color: #8b949e; margin-top: 5px;">Референс не выбран (будут применены базовые фичи)</div>
+        </div>
+
+        <div class="control-group">
+            <label for="noiseType">Звуковой фильтр маскировки:</label>
             <select id="noiseType">
-                <option value="brown">Коричневый (Глубокий гул земли)</option>
-                <option value="pink">Розовый (Мягкий шум дождя)</option>
+                <option value="brown">Коричневый шум (Глубокий космический гул)</option>
+                <option value="pink">Розовый шум (Терапевтический дождь)</option>
             </select>
         </div>
 
         <div class="control-group">
-            <label>Громкость ИИ-Эмбиента (45 сек луп):</label>
-            <input type="range" id="musicVol" class="slider" min="0" max="1" step="0.01" value="0.5" oninput="updateVolumes()">
-        </div>
-
-        <div class="control-group">
-            <label>Громкость Звуков Природы (5 мин луп):</label>
+            <label>Баланс громкости (ИИ Музыка / Шум):</label>
+            <input type="range" id="musicVol" class="slider" min="0" max="1" step="0.01" value="0.5" oninput="updateVolumes()" style="margin-bottom: 10px;">
             <input type="range" id="noiseVol" class="slider" min="0" max="1" step="0.01" value="0.3" oninput="updateVolumes()">
         </div>
 
-        <button id="playBtn" onclick="startSleepSession()">Запустить сессию сна</button>
-        <div id="status">Статус: Готов к генерации</div>
+        <button id="playBtn" onclick="startOrchestratedSession()">🎵 Сгенерировать индивидуальный поток</button>
+        
+        <div id="status">Статус: Ожидание ввода</div>
+        <div class="tags-box" id="finalTags">Итоговые ИИ-теги: Будут созданы моделью Qwen...</div>
     </div>
 
     <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const promptText = urlParams.get('prompt') || "dark ambient, slow space drone, melancholic electric guitar riffs, deep bass, 60 bpm, relaxation, no drums";
-        document.getElementById('promptLabel').innerText = `Промпт: "${promptText}"`;
-
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        
-        // Узлы управления громкостью (Gain Nodes)
         const musicGain = audioCtx.createGain();
         const noiseGain = audioCtx.createGain();
         musicGain.connect(audioCtx.destination);
@@ -59,6 +67,9 @@
         let aiMusicBuffer = null;
         let therapeuticNoiseBuffer = null;
         let isPlaying = false;
+        
+        // Локальный кэш фич анализатора
+        let referenceFeatures = null;
 
         function updateVolumes() {
             if (audioCtx) {
@@ -67,69 +78,111 @@
             }
         }
 
-        async function startSleepSession() {
+        // Автоматическая отправка файла в роут /analyze при выборе
+        async function uploadAndAnalyzeFile() {
+            const fileInput = document.getElementById('audioFile');
+            if (fileInput.files.length === 0) return;
+
+            const file = fileInput.files[0];
+            document.getElementById('uploadBtn').disabled = true;
+            document.getElementById('analysisInfo').innerText = "⏳ Librosa сканирует частоты трека...";
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                const response = await fetch('/api/v1/music/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                
+                if (result.status === "success") {
+                    referenceFeatures = {
+                        bpm: result.bpm,
+                        spectral_centroid: result.spectral_centroid,
+                        estimated_mood: result.estimated_mood
+                    };
+                    document.getElementById('analysisInfo').innerText = `✅ Успешно! BPM: ${result.bpm} | Настроение: ${result.estimated_mood}`;
+                }
+            } catch (error) {
+                console.error(error);
+                document.getElementById('analysisInfo').innerText = "❌ Ошибка анализа файла.";
+            } finally {
+                document.getElementById('uploadBtn').disabled = false;
+            }
+        }
+
+        // ГЛАВНЫЙ СЦЕНАРИЙ ИНТЕГРАЦИИ
+        // ГЛАВНЫЙ СЦЕНАРИЙ ИНТЕГРАЦИИ: Связка Qwen-2.5 + MusicGen + CPU Шум
+        async function startOrchestratedSession() {
             if (isPlaying) return;
             document.getElementById('playBtn').disabled = true;
+            const userText = document.getElementById('userThoughts').value;
             const noiseType = document.getElementById('noiseType').value;
             
             try {
-                // Шаг 1: Быстрый расчет 5-минутного терапевтического шума на CPU
-                updateStatus("⏳ Синтез терапевтического шума на CPU (300 сек)...");
+                // ШАГ 1: Параллельно запускаем математическую генерацию шума на CPU, чтобы не терять время
+                updateStatus("⏳ Генерация терапевтического шума на CPU (300 сек)...");
                 const noiseResponse = await fetch(`/api/v1/music/generate-noise?duration=300&type=${noiseType}`);
                 const noiseArrayBuffer = await noiseResponse.arrayBuffer();
                 therapeuticNoiseBuffer = await audioCtx.decodeAudioData(noiseArrayBuffer);
 
-                // Шаг 2: Разовый тяжелый вызов ИИ-модели для создания музыкального ДНК сна
-                updateStatus("⏳ Видеокарта генерирует ИИ-Эмбиент (45 сек)...");
-                const aiResponse = await fetch('/api/v1/music/generate', {
+                // ШАГ 2: Вызываем наш сквозной ИИ-оркестратор на бэкенде
+                updateStatus("⏳ Локальная Qwen-2.5 формирует промпт по вашему запросу...");
+                
+                const orchestrateResponse = await fetch('/api/v1/music/orchestrate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt: promptText, duration: 45, previous_chunk_path: null })
+                    body: JSON.stringify({
+                        user_complaint: userText,
+                        bpm: referenceFeatures ? referenceFeatures.bpm : null,
+                        estimated_mood: referenceFeatures ? referenceFeatures.estimated_mood : null
+                    })
                 });
-                const aiData = await aiResponse.json();
                 
+                if (!orchestrateResponse.ok) {
+                    throw new Error(`Ошибка оркестратора: ${orchestrateResponse.statusText}`);
+                }
+                
+                const orchestrateData = await orchestrateResponse.json();
+                
+                // Отображаем сгенерированные текстовой нейросетью Qwen теги и её обоснование на русском языке
+                document.getElementById('finalTags').innerHTML = `<b>Промпт от Qwen:</b> ${orchestrateData.musicgen_prompt}<br><br><b>ИИ-Оркестратор:</b> ${orchestrateData.reasoning}`;
+
+                // ШАГ 3: Скачиваем созданный MP3 макро-буфер ИИ-эмбиента из папки статики бэкенда
+                updateStatus("⏳ Загрузка ИИ-Эмбиента в память плеера...");
                 const fileResponse = await fetch('/static/macro_loop.mp3');
                 const aiArrayBuffer = await fileResponse.arrayBuffer();
                 aiMusicBuffer = await audioCtx.decodeAudioData(aiArrayBuffer);
 
-                // Активируем узлы громкости согласно ползункам
-                updateStatus("🔊 Сессия сна запущена. Приятного отдыха!");
+                // ШАГ 4: Запуск воспроизведения гибридного потока
+                updateStatus("🔊 Сессия запущена! Приятного отдыха.");
                 isPlaying = true;
                 updateVolumes();
 
-                // Запускаем два независимых несовпадающих цикла с кроссфейдом в 3 секунды
-                playAudioLoop(aiMusicBuffer, musicGain, 45 - 3);
-                playAudioLoop(therapeuticNoiseBuffer, noiseGain, 300 - 3);
+                // Включаем два независимых несовпадающих цикла (45-3=42 секунды для ИИ и 300-3=297 секунд для шума)
+                playAudioLoop(aiMusicBuffer, musicGain, 42);
+                playAudioLoop(therapeuticNoiseBuffer, noiseGain, 297);
 
             } catch (error) {
                 console.error(error);
-                updateStatus("❌ Ошибка запуска. Проверьте консоль.");
+                updateStatus("❌ Ошибка запуска сессии. Проверьте логи сервера.");
                 document.getElementById('playBtn').disabled = false;
             }
         }
 
-        // Универсальный бесшовный планировщик макро-циклов
         function playAudioLoop(buffer, gainNode, intervalSeconds) {
             if (!isPlaying) return;
-
             const source = audioCtx.createBufferSource();
             source.buffer = buffer;
-            
-            // Подключаем к соответствующему ползунку
             source.connect(gainNode);
-
             const startTime = audioCtx.currentTime + 0.05;
             source.start(startTime);
-
-            // Рекурсивно планируем перезапуск трека строго через интервал
-            setTimeout(() => {
-                playAudioLoop(buffer, gainNode, intervalSeconds);
-            }, intervalSeconds * 1000);
+            setTimeout(() => { playAudioLoop(buffer, gainNode, intervalSeconds); }, intervalSeconds * 1000);
         }
 
-        function updateStatus(text) {
-            document.getElementById('status').innerText = text;
-        }
+        function updateStatus(text) { document.getElementById('status').innerText = text; }
     </script>
 </body>
 </html>

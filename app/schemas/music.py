@@ -21,3 +21,9 @@ class AudioAnalysisResponse(BaseModel):
     spectral_centroid: float = Field(..., description="Спектральный центроид (яркость звука)")
     estimated_mood: str = Field(..., description="Предполагаемое настроение трека")
     chroma_features: list[float] = Field(..., description="Хроматический профиль нот")
+
+
+class OrchestratorRequest(BaseModel):
+    user_complaint: str = Field(..., description="Мысли или жалобы пользователя на плохой сон")
+    bpm: Optional[float] = Field(None, description="BPM из анализатора (если трек загружен)")
+    estimated_mood: Optional[str] = Field(None, description="Настроение из анализатора (если трек загружен)")
