@@ -52,7 +52,7 @@ class AdaptiveMusicGenerator:
                 
         # Путь для сохранения (убедитесь, что папка app/storage будет создана)
         os.makedirs("app/storage", exist_ok=True)
-        output_path = "app/storage/output_chunk_0.mp3"
+        output_path = "app/storage/macro_loop.mp3"
         
         # Сохраняем аудио на диск через torchaudio (MusicGen выдает sample rate 32000 Гц)
         

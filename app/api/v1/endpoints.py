@@ -21,23 +21,12 @@ audio_analyzer = AudioAnalyzer()
 
 @router.post("/generate", response_model=MusicGenerationResponse, tags=["Audio Generation"])
 async def generate_audio_chunk(request: MusicGenerationRequest):
-    """
-    Эндпоинт для пошаговой генерации музыки.
-    Если `previous_chunk_path` не передан — генерирует стартовый кусок.
-    Если передан — запускает механизм Continuation (продолжение по аудиоконтексту).
-    """
+
     try:
-        if not request.previous_chunk_path:
+       
             # Сценарий 1: Генерация первого чанка
-            path = music_generator.generate_first_chunk(
+        path = music_generator.generate_first_chunk(
                 prompt=request.prompt, 
-                duration=request.duration
-            )
-        else:
-            # Сценарий 2: Continuation (пошаговое продолжение)
-            path = music_generator.generate_next_chunk(
-                prompt=request.prompt,
-                previous_chunk_path=request.previous_chunk_path,
                 duration=request.duration
             )
             
