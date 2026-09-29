@@ -50,20 +50,19 @@
     </div>
 
 <script>
-    let currentPreviousPath = null;
-    
     const urlParams = new URLSearchParams(window.location.search);
-    const promptText = urlParams.get('prompt') || "dark ambient, slow space drone, melancholic electric guitar riffs, deep bass, 60 bpm, relaxation, no drums";
-    document.getElementById('promptLabel').innerText = `"${promptText}"`;
+    const promptText = urlParams.get('prompt') || "dark ambient, slow space drone, relaxation, no drums";
+    document.getElementById('promptLabel').innerText = `"${promptText}" (Гибридный шум)`;
 
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    let nextStartTime = 0;
-    let isFetching = false;
-
-    // Глобальная очередь для хранения буферов, готовых к воспроизведению
-    let bufferQueue = [];
+    let noiseAudioBuffer = null;
+    let aiMusicBuffer = null;
+    let isPlaying = false;
+    
+    const CROSSFADE_TIME = 2.0; // Время мягкой склейки шума
 
     async function startRadio() {
+        if (isPlaying) return;
         document.getElementById('playBtn').disabled = true;
         
         if (audioCtx.state === 'suspended') {
@@ -71,102 +70,98 @@
         }
         
         try {
-            // 🌟 УВЕЛИЧИВАЕМ СТАРТОВУЮ ПОДУШКУ БЕЗОПАСНОСТИ ДО 3-Х ЧАНКОВ
-            updateStatus("⏳ Создание мощного буфера: Генерируем Чанк 1/3...");
-            bufferQueue.push(await fetchAndDecodeChunk());
+            // Шаг 1: Быстрая математическая генерация шума на сервере
+            updateStatus("⏳ Создание терапевтического коричневого шума...");
+            const noiseResponse = await fetch('/api/v1/music/generate-noise?duration=15');
+            const noiseArrayBuffer = await noiseResponse.arrayBuffer();
+            noiseAudioBuffer = await audioCtx.decodeAudioData(noiseArrayBuffer);
             
-            updateStatus("⏳ Создание мощного буфера: Генерируем Чанк 2/3...");
-            bufferQueue.push(await fetchAndDecodeChunk());
+            // Шаг 2: Разовый вызов ИИ для музыкальной подложки
+            updateStatus("⏳ ИИ создает уникальную текстуру сна (15 сек)...");
+            const aiResponse = await fetch('/api/v1/music/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: promptText, duration: 15, previous_chunk_path: null })
+            });
+            const aiData = await aiResponse.json();
             
-            updateStatus("⏳ Создание мощного буфера: Генерируем Чанк 3/3...");
-            bufferQueue.push(await fetchAndDecodeChunk());
+            const fileResponse = await fetch('/static/' + aiData.chunk_path.split('/').pop());
+            const aiArrayBuffer = await fileResponse.arrayBuffer();
+            aiMusicBuffer = await audioCtx.decodeAudioData(aiArrayBuffer);
             
-            // Запускаем звуковую сетку времени
-            nextStartTime = audioCtx.currentTime + 0.1;
+            updateStatus("🔊 Поток запущен! Бесконечный шум + ИИ-эмбиент подложка.");
+            isPlaying = true;
             
-            updateStatus("🔊 Тройной буфер заполнен! Поток полностью бесшовный.");
-            
-            // Запускаем конвейер воспроизведения
-            processQueue();
+            // Запускаем бесконечные циклы
+            playNoiseLoop(audioCtx.currentTime);
+            playAiMusicLoop(audioCtx.currentTime);
             
         } catch (error) {
             console.error(error);
-            updateStatus("❌ Ошибка инициализации ИИ.");
+            updateStatus("❌ Ошибка генерации гибридного потока.");
             document.getElementById('playBtn').disabled = false;
         }
     }
 
-    async function fetchAndDecodeChunk() {
-        isFetching = true;
-        const response = await fetch('/api/v1/music/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                prompt: promptText,
-                duration: 15,
-                previous_chunk_path: currentPreviousPath
-            })
-        });
+    // Бесконечный кроссфейд-цикл для коричневого шума
+    function playNoiseLoop(startTime) {
+        if (!isPlaying) return;
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = noiseAudioBuffer;
         
-        const data = await response.json();
-        currentPreviousPath = data.chunk_path;
-        
-        const fileResponse = await fetch('/static/' + currentPreviousPath.split('/').pop());
-        const arrayBuffer = await fileResponse.arrayBuffer();
-        
-        isFetching = false;
-        return await audioCtx.decodeAudioData(arrayBuffer);
+        const gainNode = audioCtx.createGain();
+        source.connect(gainNode);
+        // Делаем шум чуть тише, чтобы он был комфортным фоном (30% громкости)
+        gainNode.gain.setValueAtTime(0.3, startTime); 
+        gainNode.connect(audioCtx.destination);
+
+        const duration = noiseAudioBuffer.duration;
+        const loopInterval = duration - CROSSFADE_TIME;
+
+        // Мягкий кроссфейд концовки шума
+        gainNode.gain.setValueAtTime(0.3, startTime);
+        gainNode.gain.setValueAtTime(0.3, startTime + loopInterval);
+        gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
+
+        source.start(startTime);
+
+        const nextStartTime = startTime + loopInterval;
+        setTimeout(() => {
+            playNoiseLoop(nextStartTime);
+        }, loopInterval * 1000);
     }
 
-    // 🌟 УЛУЧШЕННЫЙ КОНВЕЙЕР ОЧЕРЕДИ
-    function processQueue() {
-        if (bufferQueue.length === 0) {
-            updateStatus("⚠️ Буфер пуст! Ожидание видеокарты...");
-            // Если ИИ не успел, проверяем очередь снова через полсекунды
-            setTimeout(processQueue, 500);
-            return;
-        }
+    // Бесконечный цикл для ИИ-мелодии подложки
+    function playAiMusicLoop(startTime) {
+        if (!isPlaying) return;
 
-        // Достаем самый первый готовый чанк из начала очереди
-        const currentBuffer = bufferQueue.shift();
-        
         const source = audioCtx.createBufferSource();
-        source.buffer = currentBuffer;
-        source.connect(audioCtx.destination);
+        source.buffer = aiMusicBuffer;
         
-        const duration = currentBuffer.duration;
-        const playDuration = duration - 3; // 12 секунд чистой музыки
-        
-        if (nextStartTime < audioCtx.currentTime) {
-            nextStartTime = audioCtx.currentTime + 0.05;
-        }
-        
-        source.start(nextStartTime);
-        nextStartTime += playDuration;
+        const gainNode = audioCtx.createGain();
+        source.connect(gainNode);
+        gainNode.gain.setValueAtTime(0.5, startTime); // 50% громкости для мелодии
+        gainNode.connect(audioCtx.destination);
 
-        // Как только этот чанк ЗАКОНЧИЛ играть, мы:
-        // 1. Сразу включаем следующий чанк из очереди
-        // 2. В этот же миг отправляем запрос в ИИ на генерацию нового чанка в конец очереди
-        source.onended = async () => {
-            console.log("[Radio] Чанк завершен. Сдвиг конвейера и запрос наперед...");
-            
-            // Включаем следующий кусок, который уже лежал в буфере
-            processQueue();
-            
-            try {
-                // ИИ спокойно пишет новый Чанк в фоне, пока у нас играет глубокий запас
-                const newBuffer = await fetchAndDecodeChunk();
-                bufferQueue.push(newBuffer); // Кладем в конец очереди
-            } catch (e) {
-                console.error("Ошибка фоновой генерации:", e);
-            }
-        };
+        const duration = aiMusicBuffer.duration;
+        
+        // Плавно уводим музыку в конце и запускаем заново
+        gainNode.gain.setValueAtTime(0.5, startTime + duration - 2);
+        gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
+
+        source.start(startTime);
+
+        setTimeout(() => {
+            playAiMusicLoop(audioCtx.currentTime);
+        }, (duration - 2) * 1000);
     }
 
     function updateStatus(text) {
         document.getElementById('status').innerText = "Статус: " + text;
     }
 </script>
+
 
 
 </body>
