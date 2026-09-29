@@ -1,168 +1,135 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Sleep Radio</title>
+    <title>AI Sleep Laboratory</title>
     <style>
-        body {
-            background-color: #0d1117;
-            color: #c9d1d9;
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-        }
-        .player-card {
-            background: #161b22;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            text-align: center;
-            border: 1px solid #30363d;
-        }
-        button {
-            background-color: #238636;
-            color: white;
-            border: none;
-            padding: 15px 32px;
-            font-size: 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: bold;
-            transition: 0.2s;
-        }
+        body { background-color: #0d1117; color: #c9d1d9; font-family: 'Segoe UI', Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .player-card { background: #161b22; padding: 40px; border-radius: 16px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); text-align: center; border: 1px solid #30363d; width: 350px; }
+        button { background-color: #238636; color: white; border: none; padding: 15px 32px; font-size: 16px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.2s; }
         button:hover { background-color: #2ea043; }
         button:disabled { background-color: #21262d; color: #8b949e; cursor: not-allowed; }
-        #status { margin-top: 20px; color: #8b949e; font-size: 14px; }
+        .control-group { margin: 25px 0; text-align: left; }
+        label { display: block; font-size: 14px; margin-bottom: 8px; color: #8b949e; font-weight: 500; }
+        .slider { width: 100%; -webkit-appearance: none; background: #30363d; height: 6px; border-radius: 3px; outline: none; }
+        .slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #58a6ff; cursor: pointer; }
+        select { width: 100%; background: #21262d; border: 1px solid #30363d; color: white; padding: 8px; border-radius: 6px; outline: none; }
+        #status { margin-top: 20px; color: #58a6ff; font-size: 13px; font-family: monospace; }
     </style>
 </head>
 <body>
     <div class="player-card">
-        <h2>🎵 AI Sleep Assistant Radio</h2>
-        <p style="font-size: 14px; color: #8b949e; max-width: 300px;">
-            Промпт: <i id="promptLabel">Загрузка...</i>
-        </p>
-        <br>
-        <button id="playBtn" onclick="startRadio()">Включить бесконечный поток</button>
-        <div id="status">Статус: Готов к запуску</div>
+        <h2 style="margin-top:0;">🌌 AI Sleep Lab MVP</h2>
+        <p style="font-size: 13px; color: #8b949e; margin-bottom: 25px;" id="promptLabel">Загрузка...</p>
+        
+        <div class="control-group">
+            <label for="noiseType">Тип терапевтического шума:</label>
+            <select id="noiseType">
+                <option value="brown">Коричневый (Глубокий гул земли)</option>
+                <option value="pink">Розовый (Мягкий шум дождя)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Громкость ИИ-Эмбиента (45 сек луп):</label>
+            <input type="range" id="musicVol" class="slider" min="0" max="1" step="0.01" value="0.5" oninput="updateVolumes()">
+        </div>
+
+        <div class="control-group">
+            <label>Громкость Звуков Природы (5 мин луп):</label>
+            <input type="range" id="noiseVol" class="slider" min="0" max="1" step="0.01" value="0.3" oninput="updateVolumes()">
+        </div>
+
+        <button id="playBtn" onclick="startSleepSession()">Запустить сессию сна</button>
+        <div id="status">Статус: Готов к генерации</div>
     </div>
 
-<script>
-    const urlParams = new URLSearchParams(window.location.search);
-    const promptText = urlParams.get('prompt') || "dark ambient, slow space drone, relaxation, no drums";
-    document.getElementById('promptLabel').innerText = `"${promptText}" (Гибридный шум)`;
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const promptText = urlParams.get('prompt') || "dark ambient, slow space drone, melancholic electric guitar riffs, deep bass, 60 bpm, relaxation, no drums";
+        document.getElementById('promptLabel').innerText = `Промпт: "${promptText}"`;
 
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    let noiseAudioBuffer = null;
-    let aiMusicBuffer = null;
-    let isPlaying = false;
-    
-    const CROSSFADE_TIME = 2.0; // Время мягкой склейки шума
-
-    async function startRadio() {
-        if (isPlaying) return;
-        document.getElementById('playBtn').disabled = true;
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
-        if (audioCtx.state === 'suspended') {
-            await audioCtx.resume();
+        // Узлы управления громкостью (Gain Nodes)
+        const musicGain = audioCtx.createGain();
+        const noiseGain = audioCtx.createGain();
+        musicGain.connect(audioCtx.destination);
+        noiseGain.connect(audioCtx.destination);
+
+        let aiMusicBuffer = null;
+        let therapeuticNoiseBuffer = null;
+        let isPlaying = false;
+
+        function updateVolumes() {
+            if (audioCtx) {
+                musicGain.gain.setValueAtTime(document.getElementById('musicVol').value, audioCtx.currentTime);
+                noiseGain.gain.setValueAtTime(document.getElementById('noiseVol').value, audioCtx.currentTime);
+            }
         }
-        
-        try {
-            // Шаг 1: Быстрая математическая генерация шума на сервере
-            updateStatus("⏳ Создание терапевтического коричневого шума...");
-            const noiseResponse = await fetch('/api/v1/music/generate-noise?duration=15');
-            const noiseArrayBuffer = await noiseResponse.arrayBuffer();
-            noiseAudioBuffer = await audioCtx.decodeAudioData(noiseArrayBuffer);
+
+        async function startSleepSession() {
+            if (isPlaying) return;
+            document.getElementById('playBtn').disabled = true;
+            const noiseType = document.getElementById('noiseType').value;
             
-            // Шаг 2: Разовый вызов ИИ для музыкальной подложки
-            updateStatus("⏳ ИИ создает уникальную текстуру сна (15 сек)...");
-            const aiResponse = await fetch('/api/v1/music/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt: promptText, duration: 15, previous_chunk_path: null })
-            });
-            const aiData = await aiResponse.json();
-            
-            const fileResponse = await fetch('/static/' + aiData.chunk_path.split('/').pop());
-            const aiArrayBuffer = await fileResponse.arrayBuffer();
-            aiMusicBuffer = await audioCtx.decodeAudioData(aiArrayBuffer);
-            
-            updateStatus("🔊 Поток запущен! Бесконечный шум + ИИ-эмбиент подложка.");
-            isPlaying = true;
-            
-            // Запускаем бесконечные циклы
-            playNoiseLoop(audioCtx.currentTime);
-            playAiMusicLoop(audioCtx.currentTime);
-            
-        } catch (error) {
-            console.error(error);
-            updateStatus("❌ Ошибка генерации гибридного потока.");
-            document.getElementById('playBtn').disabled = false;
+            try {
+                // Шаг 1: Быстрый расчет 5-минутного терапевтического шума на CPU
+                updateStatus("⏳ Синтез терапевтического шума на CPU (300 сек)...");
+                const noiseResponse = await fetch(`/api/v1/music/generate-noise?duration=300&type=${noiseType}`);
+                const noiseArrayBuffer = await noiseResponse.arrayBuffer();
+                therapeuticNoiseBuffer = await audioCtx.decodeAudioData(noiseArrayBuffer);
+
+                // Шаг 2: Разовый тяжелый вызов ИИ-модели для создания музыкального ДНК сна
+                updateStatus("⏳ Видеокарта генерирует ИИ-Эмбиент (45 сек)...");
+                const aiResponse = await fetch('/api/v1/music/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: promptText, duration: 45, previous_chunk_path: null })
+                });
+                const aiData = await aiResponse.json();
+                
+                const fileResponse = await fetch('/static/macro_loop.mp3');
+                const aiArrayBuffer = await fileResponse.arrayBuffer();
+                aiMusicBuffer = await audioCtx.decodeAudioData(aiArrayBuffer);
+
+                // Активируем узлы громкости согласно ползункам
+                updateStatus("🔊 Сессия сна запущена. Приятного отдыха!");
+                isPlaying = true;
+                updateVolumes();
+
+                // Запускаем два независимых несовпадающих цикла с кроссфейдом в 3 секунды
+                playAudioLoop(aiMusicBuffer, musicGain, 45 - 3);
+                playAudioLoop(therapeuticNoiseBuffer, noiseGain, 300 - 3);
+
+            } catch (error) {
+                console.error(error);
+                updateStatus("❌ Ошибка запуска. Проверьте консоль.");
+                document.getElementById('playBtn').disabled = false;
+            }
         }
-    }
 
-    // Бесконечный кроссфейд-цикл для коричневого шума
-    function playNoiseLoop(startTime) {
-        if (!isPlaying) return;
+        // Универсальный бесшовный планировщик макро-циклов
+        function playAudioLoop(buffer, gainNode, intervalSeconds) {
+            if (!isPlaying) return;
 
-        const source = audioCtx.createBufferSource();
-        source.buffer = noiseAudioBuffer;
-        
-        const gainNode = audioCtx.createGain();
-        source.connect(gainNode);
-        // Делаем шум чуть тише, чтобы он был комфортным фоном (30% громкости)
-        gainNode.gain.setValueAtTime(0.3, startTime); 
-        gainNode.connect(audioCtx.destination);
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            
+            // Подключаем к соответствующему ползунку
+            source.connect(gainNode);
 
-        const duration = noiseAudioBuffer.duration;
-        const loopInterval = duration - CROSSFADE_TIME;
+            const startTime = audioCtx.currentTime + 0.05;
+            source.start(startTime);
 
-        // Мягкий кроссфейд концовки шума
-        gainNode.gain.setValueAtTime(0.3, startTime);
-        gainNode.gain.setValueAtTime(0.3, startTime + loopInterval);
-        gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
+            // Рекурсивно планируем перезапуск трека строго через интервал
+            setTimeout(() => {
+                playAudioLoop(buffer, gainNode, intervalSeconds);
+            }, intervalSeconds * 1000);
+        }
 
-        source.start(startTime);
-
-        const nextStartTime = startTime + loopInterval;
-        setTimeout(() => {
-            playNoiseLoop(nextStartTime);
-        }, loopInterval * 1000);
-    }
-
-    // Бесконечный цикл для ИИ-мелодии подложки
-    function playAiMusicLoop(startTime) {
-        if (!isPlaying) return;
-
-        const source = audioCtx.createBufferSource();
-        source.buffer = aiMusicBuffer;
-        
-        const gainNode = audioCtx.createGain();
-        source.connect(gainNode);
-        gainNode.gain.setValueAtTime(0.5, startTime); // 50% громкости для мелодии
-        gainNode.connect(audioCtx.destination);
-
-        const duration = aiMusicBuffer.duration;
-        
-        // Плавно уводим музыку в конце и запускаем заново
-        gainNode.gain.setValueAtTime(0.5, startTime + duration - 2);
-        gainNode.gain.linearRampToValueAtTime(0, startTime + duration);
-
-        source.start(startTime);
-
-        setTimeout(() => {
-            playAiMusicLoop(audioCtx.currentTime);
-        }, (duration - 2) * 1000);
-    }
-
-    function updateStatus(text) {
-        document.getElementById('status').innerText = "Статус: " + text;
-    }
-</script>
-
-
-
+        function updateStatus(text) {
+            document.getElementById('status').innerText = text;
+        }
+    </script>
 </body>
 </html>
