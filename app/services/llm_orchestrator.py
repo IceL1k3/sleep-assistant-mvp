@@ -9,37 +9,40 @@ class LLMOrchestrator:
         self.model_name = "qwen2.5:7b"  # Ваша локальная модель в Ollama
 
     def generate_music_tags(self, user_complaint: str, audio_features: dict | None = None) -> dict:
-
         """
         Принимает контекст пользователя и фичи анализатора, 
-        возвращает структурированные музыкальные теги.
+        возвращает строго валидированный JSON с музыкальными тегами.
         """
-        # Базовые фичи на случай, если пользователь не загрузил референс
         ref_bpm = audio_features.get("bpm", 60.0) if audio_features else 60.0
         ref_mood = audio_features.get("estimated_mood", "dark/relaxing") if audio_features else "dark/relaxing"
         
-        # Системные инструкции для жесткого контроля вывода модели
+        # Чистый, понятный для LLM промпт без опасного экранирования кавычек
+        # Полностью абстрактный промпт без жестких привязок к конкретным числам
         system_prompt = (
-            "You are an expert AI Music Orchestrator for a sleep assistant application.\n"
-            "Your task is to analyze the user's emotional/physical state and combine it with reference audio features "
-            "to generate optimal text tags for a music generation AI (MusicGen).\n"
-            "CRITICAL: You must reply ONLY with a raw JSON object. Do not include any markdown formatting, "
-            "no ```json blocks, no conversational text. Just the pure JSON.\n\n"
-            "The JSON structure must be exactly:\n"
+            "You are a strict, production-grade AI Music Orchestrator for a sleep app.\n"
+            "Your single job is to output a raw JSON object based on the provided User Request and Reference Audio Features.\n\n"
+            "CRITICAL CONSTRAINTS FOR LOGIC AND WEIGHTS:\n"
+            "1. Output format MUST be a single raw JSON object with keys 'musicgen_prompt' and 'reasoning'. No markdown, no triple backticks.\n"
+            "2. RULE PRIORITIES AND WEIGHTS:\n"
+            "   - PRIORITY 1.0 (WEIGHT: 100% - ABSOLUTE COMMAND): User Explicit Intent. If the user explicitly requests drums, beats, rhythm, or specific instruments, you MUST strictly include matching tags (e.g., 'slow hypnotic beat, soft rhythmic pulses, low-frequency downbeat'). In this case, you are FORBIDDEN from using the tag 'no drums'.\n"
+            "   - PRIORITY 0.2 (WEIGHT: 20% - RECOMMENDATION): General Sleep Medicine Guidelines. Only apply negative tags like 'no drums, ambient drone' if the user DID NOT ask for rhythm or beats.\n"
+            "3. BPM LOGIC: Look at the incoming Reference BPM value. If it represents a fast tempo and the user wants to relax/sleep, mathematically adapt the rhythm to a slow, relaxing sub-tempo (e.g. divide the incoming BPM value by 2) and output that calculated number in the tags. DO NOT delete the rhythm tokens if Priority 1.0 is active.\n"
+            "4. NO CONTRADICTIONS: The 'reasoning' field must be in Russian and directly support the generated tokens. Never write contradictory statements.\n\n"
+            "Strict JSON structure:\n"
             "{\n"
-            "  \"musicgen_prompt\": \"string of english tags separated by commas\",\n"
-            "  \"reasoning\": \"short explanation in Russian of why these tags were chosen\"\n"
+            "  \"musicgen_prompt\": \"comma-separated english tags\",\n"
+            "  \"reasoning\": \"короткое логичное объяснение\"\n"
             "}"
         )
 
         user_prompt = (
+            f"ACTUAL REQUEST:\n"
             f"User sleep issue: '{user_complaint}'\n"
             f"Reference audio features: BPM={ref_bpm}, Mood='{ref_mood}'\n\n"
-            f"Generate the JSON response. Keep musicgen_prompt strictly focused on ambient sleep music, slow tempo, "
-            f"matching the target BPM near {ref_bpm}. Use tags like: dark ambient, slow space drone, relaxation, no drums, etc."
+            f"Generate the JSON response now."
         )
-
-        print(f"[LLM Orchestrator] Отправка запроса в локальную Ollama ({self.model_name})...")
+        
+        print(f"[LLM Orchestrator] Отправка чистого промпта в Ollama... BMP:{ref_bpm}, mood:{ref_mood}")
         
         try:
             response = self.client.chat.completions.create(
@@ -48,28 +51,26 @@ class LLMOrchestrator:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.7,
+                temperature=0.4,
                 response_format={"type": "json_object"}
             )
             
-            # 🌟 ИСПРАВЛЕНО: Безопасное извлечение контента с защитой от None
             raw_content = response.choices[0].message.content
-            
             if not raw_content:
-                raise ValueError("Локальная LLM вернула пустой ответ (None)")
+                raise ValueError("Ollama вернула пустой ответ (None)")
                 
-            # Теперь Pylance на 100% уверен, что здесь строка, и не будет ругаться!
             raw_content = raw_content.strip()
-            print(f"[LLM Orchestrator] Получен ответ от LLM: {raw_content}")
+            print(f"[LLM Orchestrator] Живой ответ от LLM: {raw_content}")
             
             # Парсим строчку в Python-словарь
             result_json = json.loads(raw_content)
             return result_json
             
         except Exception as e:
-            print(f"[LLM Orchestrator Error] Ошибка вызова локальной LLM: {e}")
-            # Безопасный дефолтный вариант на случай сбоя
+            # Выводим РЕАЛЬНУЮ ошибку в консоль, чтобы мы видели, если что-то идет не так
+            print(f"[LLM Orchestrator Error] Реальная ошибка парсинга: {e}")
             return {
-                "musicgen_prompt": "dark ambient, slow space drone, melancholic guitar, 60 bpm, relaxation, no drums",
-                "reasoning": "Ошибка вызова локальной LLM. Применены базовые расслабляющие теги."
+                "musicgen_prompt": f"dark ambient, slow space drone, {ref_bpm} bpm, relaxation",
+                "reasoning": f"Критический сбой ИИ. Применены аварийные теги на базе референса {ref_bpm} BPM."
             }
+
